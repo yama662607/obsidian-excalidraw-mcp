@@ -21,6 +21,7 @@ describe("Knowledge Analysis Service", () => {
 					y: 0,
 					width: 10,
 					height: 10,
+					groupIds: [],
 					boundElements: [{ id: "t1", type: "text" }],
 				},
 				{
@@ -30,6 +31,7 @@ describe("Knowledge Analysis Service", () => {
 					y: 2,
 					width: 5,
 					height: 5,
+					groupIds: [],
 					text: "Node A",
 					containerId: "e1",
 				},
@@ -41,6 +43,7 @@ describe("Knowledge Analysis Service", () => {
 					y: 100,
 					width: 10,
 					height: 10,
+					groupIds: [],
 					link: "[[Note-B]]",
 				},
 
@@ -51,6 +54,7 @@ describe("Knowledge Analysis Service", () => {
 					y: 10,
 					width: 90,
 					height: 90,
+					groupIds: [],
 					startBinding: { elementId: "e1" },
 					endBinding: { elementId: "e2" },
 				},
@@ -97,6 +101,7 @@ describe("Knowledge Analysis Service", () => {
 				y: 50,
 				width: 5,
 				height: 5,
+				groupIds: [],
 				text: "connects",
 				containerId: "e3",
 			});
@@ -132,6 +137,7 @@ describe("Knowledge Analysis Service", () => {
 				y: 200,
 				width: 10,
 				height: 10,
+				groupIds: [],
 			});
 			const unlinked = findUnlinkedElements(doc);
 
@@ -151,6 +157,7 @@ describe("Knowledge Analysis Service", () => {
 				y: 200,
 				width: 10,
 				height: 10,
+				groupIds: [],
 				link: "[[Note-B|Alias]]",
 			});
 			doc.elementLinks.e4 = "[[Note-B|Alias]]";

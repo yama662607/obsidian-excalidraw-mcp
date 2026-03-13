@@ -15,7 +15,15 @@ describe("Element Links Service", () => {
 			type: "excalidraw",
 			version: 1,
 			elements: [
-				{ id: "e1", type: "rectangle", x: 0, y: 0, width: 10, height: 10 },
+				{
+					id: "e1",
+					type: "rectangle",
+					x: 0,
+					y: 0,
+					width: 10,
+					height: 10,
+					groupIds: [],
+				},
 			],
 		};
 
@@ -108,6 +116,7 @@ describe("Element Links Service", () => {
 						y: 0,
 						width: 10,
 						height: 10,
+						groupIds: [],
 						link: "[[standard/path]]",
 					},
 				],
