@@ -164,3 +164,45 @@ export function repairElementLinks(
 		repairs,
 	};
 }
+
+/**
+ * Creates a note from an element's text content.
+ * Returns the note content and the updated document with the element linked to the new note.
+ */
+export function createNoteFromElement(
+	doc: ExcalidrawMdDocument,
+	elementId: ElementId,
+	notePath: string,
+): { doc: ExcalidrawMdDocument; noteContent: string } {
+	ensureElementExists(doc, elementId);
+
+	// Get the element's text content
+	const elementText = doc.textElements[elementId];
+	const element = doc.drawing.elements.find((e) => e.id === elementId);
+
+	if (!elementText && !element?.text) {
+		throw new ExcalidrawMcpError(
+			ErrorCodes.E_OPERATION_UNSUPPORTED,
+			`Element ${elementId} has no text content to create a note from.`,
+		);
+	}
+
+	const textContent = elementText || element?.text || "";
+
+	// Create a simple template for the new note
+	const timestamp = new Date().toISOString();
+	const noteContent = `---
+created: ${timestamp}
+source: Excalidraw element ${elementId}
+---
+
+# ${textContent}
+
+`;
+
+	// Build the wiki link and attach it to the element
+	const wikiLink = `[[${notePath}]]`;
+	const updatedDoc = setElementLink(doc, elementId, wikiLink);
+
+	return { doc: updatedDoc, noteContent };
+}

@@ -410,3 +410,235 @@ export function deleteElements(
 		},
 	};
 }
+
+export type ArrangeAction =
+	| {
+			type: "align";
+			axis: "left" | "center" | "right" | "top" | "middle" | "bottom";
+	  }
+	| { type: "distribute"; axis: "horizontal" | "vertical" }
+	| { type: "group" }
+	| { type: "ungroup" }
+	| { type: "lock" }
+	| { type: "unlock" };
+
+export type ArrangeOptions = {
+	ids: ElementId[];
+	action: ArrangeAction;
+};
+
+/**
+ * Arranges elements by aligning, distributing, grouping, or locking them.
+ */
+export function arrangeElements(
+	doc: ExcalidrawMdDocument,
+	options: ArrangeOptions,
+): ExcalidrawMdDocument {
+	const { ids, action } = options;
+	const idSet = new Set(ids);
+
+	// Get the target elements
+	const targetElements = doc.drawing.elements.filter((el) => idSet.has(el.id));
+
+	if (targetElements.length === 0) {
+		return doc;
+	}
+
+	let newElements = [...doc.drawing.elements];
+
+	switch (action.type) {
+		case "align": {
+			const axis = action.axis;
+			let referenceValue: number;
+
+			// Calculate reference value based on alignment axis
+			if (axis === "left") {
+				referenceValue = Math.min(...targetElements.map((el) => el.x));
+			} else if (axis === "right") {
+				referenceValue = Math.max(
+					...targetElements.map((el) => el.x + el.width),
+				);
+			} else if (axis === "top") {
+				referenceValue = Math.min(...targetElements.map((el) => el.y));
+			} else if (axis === "bottom") {
+				referenceValue = Math.max(
+					...targetElements.map((el) => el.y + el.height),
+				);
+			} else if (axis === "center") {
+				const avgCenter =
+					targetElements.reduce((sum, el) => sum + el.x + el.width / 2, 0) /
+					targetElements.length;
+				referenceValue = avgCenter;
+			} else {
+				// middle
+				const avgMiddle =
+					targetElements.reduce((sum, el) => sum + el.y + el.height / 2, 0) /
+					targetElements.length;
+				referenceValue = avgMiddle;
+			}
+
+			// Apply alignment
+			newElements = doc.drawing.elements.map((el) => {
+				if (!idSet.has(el.id)) return el;
+
+				if (axis === "left") {
+					return { ...el, x: referenceValue, updated: Date.now() };
+				} else if (axis === "right") {
+					return { ...el, x: referenceValue - el.width, updated: Date.now() };
+				} else if (axis === "top") {
+					return { ...el, y: referenceValue, updated: Date.now() };
+				} else if (axis === "bottom") {
+					return { ...el, y: referenceValue - el.height, updated: Date.now() };
+				} else if (axis === "center") {
+					return {
+						...el,
+						x: referenceValue - el.width / 2,
+						updated: Date.now(),
+					};
+				} else {
+					// middle
+					return {
+						...el,
+						y: referenceValue - el.height / 2,
+						updated: Date.now(),
+					};
+				}
+			});
+			break;
+		}
+
+		case "distribute": {
+			const axis = action.axis;
+
+			// Sort elements by position
+			const sortedElements = [...targetElements].sort((a, b) => {
+				if (axis === "horizontal") {
+					return a.x - b.x;
+				} else {
+					return a.y - b.y;
+				}
+			});
+
+			if (sortedElements.length < 2) {
+				return doc;
+			}
+
+			if (axis === "horizontal") {
+				const totalSpace =
+					sortedElements[sortedElements.length - 1].x -
+					sortedElements[0].x -
+					sortedElements[sortedElements.length - 1].width;
+				const gap = totalSpace / (sortedElements.length - 1);
+				let currentX = sortedElements[0].x + sortedElements[0].width + gap;
+
+				const distributionMap = new Map<string, number>();
+				// Skip first and last elements
+				for (let i = 1; i < sortedElements.length - 1; i++) {
+					distributionMap.set(sortedElements[i].id, currentX);
+					currentX += sortedElements[i].width + gap;
+				}
+
+				newElements = doc.drawing.elements.map((el) => {
+					const newX = distributionMap.get(el.id);
+					if (newX !== undefined) {
+						return { ...el, x: newX, updated: Date.now() };
+					}
+					return el;
+				});
+			} else {
+				// vertical
+				const totalSpace =
+					sortedElements[sortedElements.length - 1].y -
+					sortedElements[0].y -
+					sortedElements[sortedElements.length - 1].height;
+				const gap = totalSpace / (sortedElements.length - 1);
+				let currentY = sortedElements[0].y + sortedElements[0].height + gap;
+
+				const distributionMap = new Map<string, number>();
+				// Skip first and last elements
+				for (let i = 1; i < sortedElements.length - 1; i++) {
+					distributionMap.set(sortedElements[i].id, currentY);
+					currentY += sortedElements[i].height + gap;
+				}
+
+				newElements = doc.drawing.elements.map((el) => {
+					const newY = distributionMap.get(el.id);
+					if (newY !== undefined) {
+						return { ...el, y: newY, updated: Date.now() };
+					}
+					return el;
+				});
+			}
+			break;
+		}
+
+		case "group": {
+			// Generate a new group ID
+			const groupId = generateId();
+
+			newElements = doc.drawing.elements.map((el) => {
+				if (idSet.has(el.id)) {
+					return {
+						...el,
+						groupIds: [...el.groupIds, groupId],
+						updated: Date.now(),
+					};
+				}
+				return el;
+			});
+			break;
+		}
+
+		case "ungroup": {
+			// Remove the last group ID from each element (most recent group)
+			newElements = doc.drawing.elements.map((el) => {
+				if (idSet.has(el.id) && el.groupIds.length > 0) {
+					const newGroupIds = el.groupIds.slice(0, -1);
+					return {
+						...el,
+						groupIds: newGroupIds,
+						updated: Date.now(),
+					};
+				}
+				return el;
+			});
+			break;
+		}
+
+		case "lock": {
+			newElements = doc.drawing.elements.map((el) => {
+				if (idSet.has(el.id)) {
+					return {
+						...el,
+						locked: true,
+						updated: Date.now(),
+					};
+				}
+				return el;
+			});
+			break;
+		}
+
+		case "unlock": {
+			newElements = doc.drawing.elements.map((el) => {
+				if (idSet.has(el.id)) {
+					return {
+						...el,
+						locked: false,
+						updated: Date.now(),
+					};
+				}
+				return el;
+			});
+			break;
+		}
+	}
+
+	return {
+		...doc,
+		drawing: {
+			...doc.drawing,
+			elements: newElements,
+		},
+	};
+}
