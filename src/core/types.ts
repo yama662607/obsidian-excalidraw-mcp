@@ -36,6 +36,7 @@ export type ExcalidrawElement = {
 	y: number;
 	width: number;
 	height: number;
+	groupIds: string[];
 	[key: string]: unknown;
 };
 
