@@ -1,0 +1,191 @@
+import { parseToDocument, rebuildMarkdown } from "@core/parser/parser";
+import {
+	type AddEdgeOptions,
+	type AddNodeOptions,
+	addEdge,
+	addNode,
+	deleteElements,
+	type ElementUpdatePatch,
+	updateElements,
+} from "@core/services/editing";
+import { readVaultFile, writeVaultFileAtomically } from "@core/storage/storage";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import {
+	FilePathSchema,
+	getVaultPathOrThrow,
+	withErrorHandling,
+} from "./parsers";
+
+export function registerEditing(server: McpServer) {
+	// 1. Add Node
+	server.tool(
+		"excalidraw_add_node",
+		"Adds a new node (rectangle, text, etc.) to an Excalidraw document.",
+		{
+			...FilePathSchema.shape,
+			type: z
+				.enum(["rectangle", "ellipse", "diamond", "text", "frame"])
+				.describe("Type of node"),
+			x: z.number(),
+			y: z.number(),
+			width: z.number().optional(),
+			height: z.number().optional(),
+			text: z.string().optional().describe("Text to display inside the node"),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const { doc: newDoc, addedIds } = addNode(
+					doc,
+					params as AddNodeOptions,
+				);
+
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [
+						{ type: "text", text: `Node added. IDs: ${addedIds.join(", ")}` },
+					],
+				};
+			});
+		},
+	);
+
+	// 2. Add Edge
+	server.tool(
+		"excalidraw_add_edge",
+		"Links two nodes together with an arrow or line.",
+		{
+			...FilePathSchema.shape,
+			startId: z.string().describe("Element ID to start the edge from"),
+			endId: z.string().describe("Element ID to end the edge at"),
+			type: z.enum(["arrow", "line"]).optional(),
+			text: z.string().optional().describe("Text label to put on the edge"),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const { doc: newDoc, addedIds } = addEdge(
+					doc,
+					params as AddEdgeOptions,
+				);
+
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [
+						{ type: "text", text: `Edge added. IDs: ${addedIds.join(", ")}` },
+					],
+				};
+			});
+		},
+	);
+
+	// 3. Update Elements
+	server.tool(
+		"excalidraw_update_elements",
+		"Updates properties of existing elements (e.g. text content, coordinates).",
+		{
+			...FilePathSchema.shape,
+			patches: z
+				.array(
+					z
+						.object({
+							id: z.string(),
+						})
+						.catchall(z.unknown()),
+				)
+				.describe("Array of patches. Must include `id`."),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const docPatches: ElementUpdatePatch[] = params.patches;
+
+				const newDoc = updateElements(doc, docPatches);
+
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [{ type: "text", text: `Elements updated successfully.` }],
+				};
+			});
+		},
+	);
+
+	// 4. Delete Elements
+	server.tool(
+		"excalidraw_delete_elements",
+		"Deletes elements by IDs and cleans up their connections.",
+		{
+			...FilePathSchema.shape,
+			ids: z.array(z.string()).describe("List of element IDs to delete"),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const newDoc = deleteElements(doc, params.ids);
+
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Deleted elements: ${params.ids.join(", ")}`,
+						},
+					],
+				};
+			});
+		},
+	);
+}
