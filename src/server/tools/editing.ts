@@ -2,8 +2,10 @@ import { parseToDocument, rebuildMarkdown } from "@core/parser/parser";
 import {
 	type AddEdgeOptions,
 	type AddNodeOptions,
+	type ArrangeOptions,
 	addEdge,
 	addNode,
+	arrangeElements,
 	deleteElements,
 	type ElementUpdatePatch,
 	updateElements,
@@ -20,7 +22,7 @@ import {
 export function registerEditing(server: McpServer) {
 	// 1. Add Node
 	server.tool(
-		"excalidraw_add_node",
+		"add_node",
 		"Adds a new node (rectangle, text, etc.) to an Excalidraw document.",
 		{
 			...FilePathSchema.shape,
@@ -66,7 +68,7 @@ export function registerEditing(server: McpServer) {
 
 	// 2. Add Edge
 	server.tool(
-		"excalidraw_add_edge",
+		"add_edge",
 		"Links two nodes together with an arrow or line.",
 		{
 			...FilePathSchema.shape,
@@ -108,7 +110,7 @@ export function registerEditing(server: McpServer) {
 
 	// 3. Update Elements
 	server.tool(
-		"excalidraw_update_elements",
+		"update_elements",
 		"Updates properties of existing elements (e.g. text content, coordinates).",
 		{
 			...FilePathSchema.shape,
@@ -152,7 +154,7 @@ export function registerEditing(server: McpServer) {
 
 	// 4. Delete Elements
 	server.tool(
-		"excalidraw_delete_elements",
+		"delete_elements",
 		"Deletes elements by IDs and cleans up their connections.",
 		{
 			...FilePathSchema.shape,
@@ -182,6 +184,79 @@ export function registerEditing(server: McpServer) {
 						{
 							type: "text",
 							text: `Deleted elements: ${params.ids.join(", ")}`,
+						},
+					],
+				};
+			});
+		},
+	);
+
+	// 5. Arrange Elements
+	server.tool(
+		"arrange_elements",
+		"Arranges elements by aligning, distributing, grouping, or locking them.",
+		{
+			...FilePathSchema.shape,
+			ids: z.array(z.string()).describe("List of element IDs to arrange"),
+			action: z
+				.discriminatedUnion("type", [
+					z.object({
+						type: z.literal("align"),
+						axis: z.enum([
+							"left",
+							"center",
+							"right",
+							"top",
+							"middle",
+							"bottom",
+						]),
+					}),
+					z.object({
+						type: z.literal("distribute"),
+						axis: z.enum(["horizontal", "vertical"]),
+					}),
+					z.object({ type: z.literal("group") }),
+					z.object({ type: z.literal("ungroup") }),
+					z.object({ type: z.literal("lock") }),
+					z.object({ type: z.literal("unlock") }),
+				])
+				.describe(
+					"Arrangement action: align (left/center/right/top/middle/bottom), distribute (horizontal/vertical), group, ungroup, lock, or unlock",
+				),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const arrangeOptions: ArrangeOptions = {
+					ids: params.ids,
+					action: params.action,
+				};
+				const newDoc = arrangeElements(doc, arrangeOptions);
+
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				const actionDesc =
+					"type" in params.action
+						? `${params.action.type}${"axis" in params.action ? ` (${params.action.axis})` : ""}`
+						: "unknown";
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Arranged elements: ${params.ids.join(", ")} with action: ${actionDesc}`,
 						},
 					],
 				};

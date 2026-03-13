@@ -1,10 +1,15 @@
 import { parseToDocument, rebuildMarkdown } from "@core/parser/parser";
 import {
+	createNoteFromElement,
 	removeElementLink,
 	repairElementLinks,
 	setElementLink,
 } from "@core/services/links";
-import { readVaultFile, writeVaultFileAtomically } from "@core/storage/storage";
+import {
+	listVaultMarkdownFiles,
+	readVaultFile,
+	writeVaultFileAtomically,
+} from "@core/storage/storage";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -138,6 +143,157 @@ export function registerLinks(server: McpServer) {
 						{
 							type: "text",
 							text: `Repaired ${repairs.length} links:\n${resultString}`,
+						},
+					],
+				};
+			});
+		},
+	);
+
+	// 4. Create Note from Element
+	server.tool(
+		"create_note_from_element",
+		"Creates a new Obsidian note from an element's text content and links the element to it.",
+		{
+			...FilePathSchema.shape,
+			elementId: z.string().describe("ID of the element to create a note from"),
+			notePath: z
+				.string()
+				.describe(
+					"Path for the new note (e.g., 'My Note' or 'Folder/My Note')",
+				),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const { doc: newDoc, noteContent } = createNoteFromElement(
+					doc,
+					params.elementId,
+					params.notePath,
+				);
+
+				// Write the new note file
+				const noteFileName = `${params.notePath}.md`;
+				await writeVaultFileAtomically(vaultPath, noteFileName, noteContent);
+
+				// Update and save the drawing
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Created note [[${params.notePath}]] and linked element ${params.elementId} to it.`,
+						},
+					],
+				};
+			});
+		},
+	);
+
+	// 5. Suggest Links for Elements
+	server.tool(
+		"suggest_links_for_elements",
+		"Suggests existing Vault notes as link candidates based on element text content.",
+		{
+			...FilePathSchema.shape,
+			elementIds: z
+				.array(z.string())
+				.describe("List of element IDs to suggest links for"),
+			maxSuggestions: z
+				.number()
+				.min(1)
+				.max(50)
+				.optional()
+				.describe(
+					"Maximum number of suggestions to return per element (default: 10)",
+				),
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				// Get all markdown files in the vault
+				const vaultFiles = await listVaultMarkdownFiles(vaultPath);
+
+				const maxSuggestions = params.maxSuggestions || 10;
+				const suggestions: Record<
+					string,
+					Array<{ path: string; score: number }>
+				> = {};
+
+				// Calculate similarity scores for each element
+				for (const elementId of params.elementIds) {
+					const elementText: string =
+						(doc.textElements[elementId] as string | undefined) ||
+						(doc.drawing.elements.find((e) => e.id === elementId)?.text as
+							| string
+							| undefined) ||
+						"";
+
+					if (!elementText) {
+						suggestions[elementId] = [];
+						continue;
+					}
+
+					// Simple matching: exact match, then case-insensitive, then includes
+					const matches = vaultFiles
+						.map((filePath) => {
+							const fileName = filePath.split("/").pop() || filePath;
+							let score = 0;
+
+							// Exact match
+							if (fileName === elementText) {
+								score = 100;
+							}
+							// Case-insensitive match
+							else if (fileName.toLowerCase() === elementText.toLowerCase()) {
+								score = 80;
+							}
+							// Includes element text
+							else if (
+								fileName.toLowerCase().includes(elementText.toLowerCase())
+							) {
+								score = 60;
+							}
+							// Element text includes file name
+							else if (
+								elementText.toLowerCase().includes(fileName.toLowerCase())
+							) {
+								score = 50;
+							}
+
+							return { path: filePath, score };
+						})
+						.filter((m) => m.score > 0)
+						.sort((a, b) => b.score - a.score)
+						.slice(0, maxSuggestions);
+
+					suggestions[elementId] = matches;
+				}
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ suggestions }, null, 2),
 						},
 					],
 				};
