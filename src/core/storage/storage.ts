@@ -223,3 +223,49 @@ export async function restoreSnapshot(
 		throw error;
 	}
 }
+
+/**
+ * Lists markdown files in the vault for link suggestions.
+ * Returns file paths without .md extension for easy WikiLink creation.
+ */
+export async function listVaultMarkdownFiles(
+	vaultRoot: string,
+): Promise<string[]> {
+	const markdownFiles: string[] = [];
+
+	async function walkDir(dir: string, relativePath: string = "") {
+		try {
+			const entries = await readdir(dir, { withFileTypes: true });
+
+			for (const entry of entries) {
+				// Skip hidden directories and the snapshot directory
+				if (
+					entry.name.startsWith(".") ||
+					entry.name === "node_modules" ||
+					entry.name === ".ai-excalidraw-snapshots"
+				) {
+					continue;
+				}
+
+				const entryPath = join(dir, entry.name);
+				const entryRelativePath = join(relativePath, entry.name);
+
+				if (entry.isDirectory()) {
+					await walkDir(entryPath, entryRelativePath);
+				} else if (entry.isFile() && entry.name.endsWith(".md")) {
+					// Remove .md extension and add to list
+					const withoutExt = entryRelativePath.slice(0, -3);
+					markdownFiles.push(withoutExt);
+				}
+			}
+		} catch (error: unknown) {
+			// Skip directories we can't read
+			if (getErrorCode(error) !== "EACCES") {
+				throw error;
+			}
+		}
+	}
+
+	await walkDir(vaultRoot);
+	return markdownFiles;
+}
