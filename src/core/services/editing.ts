@@ -475,9 +475,9 @@ export function deleteElements(
 
 export type ArrangeAction =
 	| {
-		type: "align";
-		axis: "left" | "center" | "right" | "top" | "middle" | "bottom";
-	}
+			type: "align";
+			axis: "left" | "center" | "right" | "top" | "middle" | "bottom";
+	  }
 	| { type: "distribute"; axis: "horizontal" | "vertical" }
 	| { type: "group" }
 	| { type: "ungroup" }

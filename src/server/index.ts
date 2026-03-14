@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { config } from "./config";
@@ -41,4 +43,26 @@ export async function runServer() {
 	console.error(
 		`Excalidraw MCP Server running. Vault Path: ${config.vaultPath}`,
 	);
+}
+
+function isDirectExecution(): boolean {
+	if (!process.argv[1]) {
+		return false;
+	}
+
+	try {
+		return (
+			realpathSync(process.argv[1]) ===
+			realpathSync(fileURLToPath(import.meta.url))
+		);
+	} catch {
+		return false;
+	}
+}
+
+if (isDirectExecution()) {
+	void runServer().catch((error: unknown) => {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(1);
+	});
 }
