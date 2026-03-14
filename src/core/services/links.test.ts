@@ -134,6 +134,7 @@ describe("Element Links Service", () => {
 
 			expect(repairs.length).toBe(1);
 			expect(repairs[0].elementId).toBe("e1");
+			expect(repairs[0].action).toBe("updated");
 
 			expect(repaired.elementLinks.e1).toBe("[[new/brand/new_path|Alias]]"); // Preserves alias
 			expect(repaired.elementLinks.e2).toBe("[[standard/path]]"); // Unaffected
@@ -144,6 +145,34 @@ describe("Element Links Service", () => {
 				throw new Error("Missing element e1");
 			}
 			expect(e1.link).toBe("[[new/brand/new_path|Alias]]");
+		});
+
+		it("should remove stale links for elements that no longer exist", () => {
+			const withStale = {
+				...doc,
+				elementLinks: {
+					ghost: "[[orphan]]",
+				},
+			};
+
+			const { doc: repaired, repairs } = repairElementLinks(withStale);
+			expect(repaired.elementLinks.ghost).toBeUndefined();
+			expect(repairs).toEqual([
+				{
+					elementId: "ghost",
+					action: "removed",
+					oldLink: "[[orphan]]",
+					newLink: null,
+				},
+			]);
+		});
+
+		it("should normalize .md suffix and slash style", () => {
+			const withLink = setElementLink(doc, "e1", "[[folder\\topic.md|Topic]]");
+			const { doc: repaired, repairs } = repairElementLinks(withLink);
+
+			expect(repaired.elementLinks.e1).toBe("[[folder/topic|Topic]]");
+			expect(repairs[0]?.action).toBe("updated");
 		});
 	});
 });

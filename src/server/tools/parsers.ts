@@ -6,7 +6,7 @@ import {
 	restoreSnapshot,
 	writeVaultFileAtomically,
 } from "@core/storage/storage";
-import { ExcalidrawMcpError } from "@core/types";
+import { ErrorCodes, ExcalidrawMcpError } from "@core/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { config } from "../config";
@@ -46,41 +46,196 @@ export const FilePathSchema = z.object({
 });
 
 export function registerParsers(server: McpServer) {
-	server.tool(
+	server.registerTool(
 		"inspect_drawing",
-		"Reads and parses an .excalidraw.md document into a structured JSON representation.",
-		FilePathSchema.shape,
-		async ({ filePath }) => {
+		{
+			description:
+				"Read-only inspection of an .excalidraw.md document. Supports summary, elements, element, text, links, and query modes.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				mode: z
+					.enum(["summary", "elements", "element", "text", "links", "query"])
+					.optional()
+					.describe("Inspection mode. Defaults to summary."),
+				elementId: z.string().optional().describe("Required for mode=element."),
+				search: z
+					.string()
+					.optional()
+					.describe("Search keyword for mode=query."),
+			},
+			annotations: {
+				readOnlyHint: true,
+			},
+		},
+		async ({ filePath, mode, elementId, search }) => {
 			return withErrorHandling(async () => {
 				const vaultPath = getVaultPathOrThrow();
 				const { content, fileStat } = await readVaultFile(vaultPath, filePath);
 				const doc = parseToDocument(content, filePath, fileStat);
+				const inspectMode = mode ?? "summary";
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: JSON.stringify(doc, null, 2),
-						},
-					],
-				};
+				switch (inspectMode) {
+					case "summary": {
+						const activeElements = doc.drawing.elements.filter(
+							(el) => !el.isDeleted,
+						);
+						const edgeCount = activeElements.filter(
+							(el) => el.type === "arrow" || el.type === "line",
+						).length;
+						const linkedElementIds = Object.keys(doc.elementLinks);
+
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										{
+											summary: {
+												filePath,
+												drawingEncoding: doc.drawingEncoding,
+												totalElements: activeElements.length,
+												edgeCount,
+												textElementsCount: Object.keys(doc.textElements).length,
+												linkedElementsCount: linkedElementIds.length,
+											},
+										},
+										null,
+										2,
+									),
+								},
+							],
+						};
+					}
+
+					case "elements": {
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										{
+											elements: doc.drawing.elements,
+										},
+										null,
+										2,
+									),
+								},
+							],
+						};
+					}
+
+					case "element": {
+						if (!elementId) {
+							throw new Error("elementId is required when mode=element");
+						}
+
+						const element = doc.drawing.elements.find(
+							(el) => el.id === elementId,
+						);
+						if (!element) {
+							throw new Error(`Element not found: ${elementId}`);
+						}
+
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										{
+											element,
+											text: doc.textElements[elementId] ?? null,
+											link: doc.elementLinks[elementId] ?? null,
+										},
+										null,
+										2,
+									),
+								},
+							],
+						};
+					}
+
+					case "text": {
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										{ textElements: doc.textElements },
+										null,
+										2,
+									),
+								},
+							],
+						};
+					}
+
+					case "links": {
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify(
+										{ elementLinks: doc.elementLinks },
+										null,
+										2,
+									),
+								},
+							],
+						};
+					}
+
+					case "query": {
+						if (!search?.trim()) {
+							throw new Error("search is required when mode=query");
+						}
+
+						const needle = search.toLowerCase();
+						const matches = doc.drawing.elements.filter((el) => {
+							const candidateTexts = [
+								typeof el.text === "string" ? el.text : "",
+								typeof el.label === "string" ? el.label : "",
+								doc.textElements[el.id] ?? "",
+							];
+							return candidateTexts.some((text) =>
+								text.toLowerCase().includes(needle),
+							);
+						});
+
+						return {
+							content: [
+								{
+									type: "text",
+									text: JSON.stringify({ search, matches }, null, 2),
+								},
+							],
+						};
+					}
+
+					default:
+						throw new Error(`Unsupported inspect mode: ${inspectMode}`);
+				}
 			});
 		},
 	);
 
 	// Snapshot Management Tools
-	server.tool(
+	server.registerTool(
 		"snapshot_drawing",
-		"Manages snapshots of Excalidraw drawings. Supports create, list, and restore operations.",
 		{
-			...FilePathSchema.shape,
-			action: z
-				.enum(["create", "list", "restore"])
-				.describe("Action to perform: create, list, or restore"),
-			snapshotFileName: z
-				.string()
-				.optional()
-				.describe("Required for restore: name of the snapshot file to restore"),
+			description:
+				"Manages snapshots of Excalidraw drawings. Supports create, list, and restore operations.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				action: z
+					.enum(["create", "list", "restore"])
+					.describe("Action to perform: create, list, or restore"),
+				snapshotFileName: z
+					.string()
+					.optional()
+					.describe(
+						"Required for restore: name of the snapshot file to restore",
+					),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -160,25 +315,48 @@ export function registerParsers(server: McpServer) {
 	);
 
 	// Convert Drawing Format Tool
-	server.tool(
+	server.registerTool(
 		"convert_drawing_format",
-		"Converts between .excalidraw.md and .excalidraw JSON formats.",
 		{
-			...FilePathSchema.shape,
-			direction: z
-				.enum(["to-json", "to-markdown"])
-				.describe("Conversion direction: to-json or to-markdown"),
-			outputPath: z
-				.string()
-				.describe(
-					"Output file path (relative to vault) for the converted file",
-				),
+			description:
+				"Converts between .excalidraw.md and .excalidraw JSON formats.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				action: z
+					.enum(["export_excalidraw_json", "import_excalidraw_json"])
+					.optional()
+					.describe(
+						"Preferred action. export_excalidraw_json exports markdown to JSON; import_excalidraw_json imports JSON to markdown.",
+					),
+				direction: z
+					.enum(["to-json", "to-markdown"])
+					.optional()
+					.describe("Conversion direction: to-json or to-markdown"),
+				outputPath: z
+					.string()
+					.describe(
+						"Output file path (relative to vault) for the converted file",
+					),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
 				const vaultPath = getVaultPathOrThrow();
+				const direction =
+					params.direction ??
+					(params.action === "export_excalidraw_json"
+						? "to-json"
+						: params.action === "import_excalidraw_json"
+							? "to-markdown"
+							: undefined);
 
-				switch (params.direction) {
+				if (!direction) {
+					throw new Error(
+						"Either action or direction must be provided for convert_drawing_format.",
+					);
+				}
+
+				switch (direction) {
 					case "to-json": {
 						// Read .excalidraw.md and extract JSON
 						const { content, fileStat } = await readVaultFile(
@@ -244,7 +422,7 @@ export function registerParsers(server: McpServer) {
 							};
 						} catch (error: unknown) {
 							throw new ExcalidrawMcpError(
-								"E_PARSE_INVALID_MD",
+								ErrorCodes.E_PARSE_INVALID_MD,
 								`Failed to parse JSON file: ${error instanceof Error ? error.message : String(error)}`,
 							);
 						}

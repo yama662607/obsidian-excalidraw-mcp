@@ -14,124 +14,50 @@ import {
 } from "./parsers";
 
 export function registerAnalysis(server: McpServer) {
-	// 1. Extract Graph
-	server.tool(
-		"excalidraw_extract_graph",
-		"Extracts a normalized graph structure (nodes and directed edges) from the Excalidraw drawing.",
-		FilePathSchema.shape,
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
-
-				const graph = extractGraph(doc);
-
-				return {
-					content: [{ type: "text", text: JSON.stringify(graph, null, 2) }],
-				};
-			});
-		},
-	);
-
-	// 2. Find Unlinked Elements
-	server.tool(
-		"excalidraw_find_unlinked",
-		"Finds elements with text content that are not linked to any standard Markdown note.",
-		FilePathSchema.shape,
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
-
-				const unlinked = findUnlinkedElements(doc);
-				const summaries = unlinked.map((u) => ({
-					id: u.id,
-					text: doc.textElements[u.id] || u.text || "Unknown text/bindings",
-				}));
-
-				if (summaries.length === 0) {
-					return {
-						content: [
-							{ type: "text", text: "No unlinked text elements found." },
-						],
-					};
-				}
-
-				return {
-					content: [
-						{
-							type: "text",
-							text: JSON.stringify({ unlinkedElements: summaries }, null, 2),
-						},
-					],
-				};
-			});
-		},
-	);
-
-	// 3. Find Duplicate Links
-	server.tool(
-		"excalidraw_find_duplicates",
-		"Detects if multiple separate visual elements link to the same Markdown note.",
-		FilePathSchema.shape,
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
-
-				const duplicates = findDuplicateLinks(doc);
-
-				if (duplicates.length === 0) {
-					return {
-						content: [{ type: "text", text: "No duplicate links found." }],
-					};
-				}
-
-				return {
-					content: [
-						{ type: "text", text: JSON.stringify({ duplicates }, null, 2) },
-					],
-				};
-			});
-		},
-	);
-
-	// 4. Analyze Drawing (Unified Analysis Tool)
-	server.tool(
+	// 1. Analyze Drawing (unified analysis tool)
+	server.registerTool(
 		"analyze_drawing",
-		"Comprehensive analysis of the Excalidraw drawing. Supports multiple analysis types via the 'query' parameter.",
 		{
-			...FilePathSchema.shape,
-			query: z
-				.enum([
-					"summary",
-					"elements",
-					"element",
-					"text",
-					"links",
-					"graph",
-					"unlinked",
-					"duplicates",
-				])
-				.describe("Type of analysis to perform"),
-			elementId: z
-				.string()
-				.optional()
-				.describe(
-					"Required for 'element' query: specific element ID to analyze",
-				),
+			description:
+				"Comprehensive analysis of the Excalidraw drawing. Supports multiple analysis types via the 'query' parameter.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				mode: z
+					.enum([
+						"summary",
+						"elements",
+						"element",
+						"text",
+						"links",
+						"graph",
+						"unlinked",
+						"duplicates",
+					])
+					.optional()
+					.describe("Type of analysis to perform"),
+				query: z
+					.enum([
+						"summary",
+						"elements",
+						"element",
+						"text",
+						"links",
+						"graph",
+						"unlinked",
+						"duplicates",
+					])
+					.optional()
+					.describe("Type of analysis to perform"),
+				elementId: z
+					.string()
+					.optional()
+					.describe(
+						"Required for 'element' query: specific element ID to analyze",
+					),
+			},
+			annotations: {
+				readOnlyHint: true,
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -141,8 +67,9 @@ export function registerAnalysis(server: McpServer) {
 					params.filePath,
 				);
 				const doc = parseToDocument(content, params.filePath, fileStat);
+				const mode = params.mode ?? params.query ?? "summary";
 
-				switch (params.query) {
+				switch (mode) {
 					case "summary": {
 						const graph = extractGraph(doc);
 						const unlinked = findUnlinkedElements(doc);

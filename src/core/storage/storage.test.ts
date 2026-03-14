@@ -52,6 +52,12 @@ describe("Safe Storage Layer", () => {
 				}
 			}
 		});
+
+		it("should reject sibling-prefix escape paths", () => {
+			expect(() =>
+				validateVaultPath("/tmp/vault", "../vault-evil/a.md"),
+			).toThrowError(ExcalidrawMcpError);
+		});
 	});
 
 	describe("getFileStat", () => {
@@ -170,6 +176,12 @@ describe("Safe Storage Layer", () => {
 			await restoreSnapshot(TEST_VAULT, "test.md", snapshotFile);
 			const { content: restored } = await readVaultFile(TEST_VAULT, "test.md");
 			expect(restored).toBe("test content");
+		});
+
+		it("should reject traversal in snapshot file name", async () => {
+			await expect(
+				restoreSnapshot(TEST_VAULT, "test.md", "../test.md"),
+			).rejects.toThrowError(ExcalidrawMcpError);
 		});
 	});
 });

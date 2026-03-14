@@ -18,6 +18,69 @@ const DRAWING_SEC_PLAIN_RE =
 const TEXT_ELEMENT_RE = /^(.*?)\s+\^([a-zA-Z0-9_-]+)$/gm;
 const ELEMENT_LINK_RE = /^(\[\[.*?\]\])\s+\^([a-zA-Z0-9_-]+)$/gm;
 
+function parseFrontmatter(
+	rawFrontmatter: string | null,
+): Record<string, unknown> | null {
+	if (!rawFrontmatter) {
+		return null;
+	}
+
+	const body = rawFrontmatter
+		.replace(/^---\n/, "")
+		.replace(/\n---\n$/, "")
+		.trim();
+
+	if (!body) {
+		return {};
+	}
+
+	const parsed: Record<string, unknown> = {};
+	for (const line of body.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith("#")) {
+			continue;
+		}
+
+		const sepIdx = trimmed.indexOf(":");
+		if (sepIdx === -1) {
+			continue;
+		}
+
+		const key = trimmed.slice(0, sepIdx).trim();
+		let valueRaw = trimmed.slice(sepIdx + 1).trim();
+
+		if (!key) {
+			continue;
+		}
+
+		if (
+			(valueRaw.startsWith('"') && valueRaw.endsWith('"')) ||
+			(valueRaw.startsWith("'") && valueRaw.endsWith("'"))
+		) {
+			valueRaw = valueRaw.slice(1, -1);
+		}
+
+		if (valueRaw === "true" || valueRaw === "false") {
+			parsed[key] = valueRaw === "true";
+			continue;
+		}
+
+		const asNumber = Number(valueRaw);
+		if (
+			valueRaw !== "" &&
+			!Number.isNaN(asNumber) &&
+			/^-?\d+(?:\.\d+)?$/.test(valueRaw)
+		) {
+			parsed[key] = asNumber;
+			continue;
+		}
+
+		parsed[key] = valueRaw;
+	}
+
+	return parsed;
+}
+
 // ─── Regex for sections ────────────────────────────────────
 
 /**
@@ -207,7 +270,7 @@ export function parseToDocument(
 
 	return {
 		path: filePath,
-		frontmatter: null, // Basic parsing for now, could integrate a YAML parser if needed
+		frontmatter: parseFrontmatter(sections.frontmatter),
 		rawFrontmatterText: sections.frontmatter,
 		headerNoticeText: sections.headerNotice,
 		textElements,
@@ -241,7 +304,7 @@ export function rebuildMarkdown(doc: ExcalidrawMdDocument): string {
 	}
 
 	// 3. Text Elements
-	const textIds = Object.keys(doc.textElements).sort();
+	const textIds = Object.keys(doc.textElements);
 	if (textIds.length > 0) {
 		out += "\n## Text Elements\n";
 		for (const id of textIds) {
@@ -250,7 +313,7 @@ export function rebuildMarkdown(doc: ExcalidrawMdDocument): string {
 	}
 
 	// 4. Element Links
-	const linkIds = Object.keys(doc.elementLinks).sort();
+	const linkIds = Object.keys(doc.elementLinks);
 	if (linkIds.length > 0) {
 		out += "\n## Element Links\n";
 		for (const id of linkIds) {

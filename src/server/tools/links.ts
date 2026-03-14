@@ -19,207 +19,241 @@ import {
 } from "./parsers";
 
 export function registerLinks(server: McpServer) {
-	// 1. Set Element Link
-	server.tool(
-		"excalidraw_set_link",
-		"Attaches a markdown WikiLink to an element in Excalidraw.",
+	// 1. Manage Element Links (unified tool for get/set/remove/repair)
+	server.registerTool(
+		"manage_element_links",
 		{
-			...FilePathSchema.shape,
-			elementId: z.string().describe("ID of the element"),
-			wikiLink: z
-				.string()
-				.describe("Obsidian WikiLink (e.g., [[My target note]])"),
+			description:
+				"Manages Element Links (element ID → wiki link mappings). Supports get, set, remove, and repair operations.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				action: z
+					.enum(["get", "set", "remove", "repair"])
+					.describe(
+						"Action to perform: get (list all), set (add/update), remove (delete), or repair (batch fix paths)",
+					),
+				elementId: z
+					.string()
+					.optional()
+					.describe("Required for 'get', 'set', 'remove': element ID"),
+				wikiLink: z
+					.string()
+					.optional()
+					.describe(
+						"Required for 'set': Obsidian WikiLink (e.g., [[My target note]])",
+					),
+				pathUpdates: z
+					.record(z.string(), z.string())
+					.optional()
+					.describe("Optional map of { 'old/path': 'new/path' } overrides."),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
 				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
 
-				const newDoc = setElementLink(doc, params.elementId, params.wikiLink);
+				switch (params.action) {
+					case "get": {
+						if (!params.elementId) {
+							// Get all links
+							const { content, fileStat } = await readVaultFile(
+								vaultPath,
+								params.filePath,
+							);
+							const doc = parseToDocument(content, params.filePath, fileStat);
 
-				const outMarkdown = rebuildMarkdown(newDoc);
-				await writeVaultFileAtomically(
-					vaultPath,
-					params.filePath,
-					outMarkdown,
-					fileStat,
-				);
+							return {
+								content: [
+									{
+										type: "text",
+										text: JSON.stringify(
+											{ elementLinks: doc.elementLinks },
+											null,
+											2,
+										),
+									},
+								],
+							};
+						} else {
+							// Get specific element link
+							const { content, fileStat } = await readVaultFile(
+								vaultPath,
+								params.filePath,
+							);
+							const doc = parseToDocument(content, params.filePath, fileStat);
+							const link = doc.elementLinks[params.elementId];
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Link ${params.wikiLink} successfully attached to ${params.elementId}.`,
-						},
-					],
-				};
-			});
-		},
-	);
+							if (!link) {
+								return {
+									content: [
+										{
+											type: "text",
+											text: `No link found for element ${params.elementId}.`,
+										},
+									],
+								};
+							}
 
-	// 2. Remove Element Link
-	server.tool(
-		"excalidraw_remove_link",
-		"Removes a wiki link from an element.",
-		{
-			...FilePathSchema.shape,
-			elementId: z.string(),
-		},
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
+							return {
+								content: [
+									{
+										type: "text",
+										text: JSON.stringify(
+											{ elementId: params.elementId, link },
+											null,
+											2,
+										),
+									},
+								],
+							};
+						}
+					}
 
-				const newDoc = removeElementLink(doc, params.elementId);
+					case "set": {
+						if (!params.elementId || !params.wikiLink) {
+							throw new Error(
+								"elementId and wikiLink are required for 'set' action",
+							);
+						}
 
-				const outMarkdown = rebuildMarkdown(newDoc);
-				await writeVaultFileAtomically(
-					vaultPath,
-					params.filePath,
-					outMarkdown,
-					fileStat,
-				);
+						const { content, fileStat } = await readVaultFile(
+							vaultPath,
+							params.filePath,
+						);
+						const doc = parseToDocument(content, params.filePath, fileStat);
 
-				return {
-					content: [
-						{ type: "text", text: `Link removed from ${params.elementId}.` },
-					],
-				};
-			});
-		},
-	);
+						const newDoc = setElementLink(
+							doc,
+							params.elementId,
+							params.wikiLink,
+						);
 
-	// 3. Repair Element Links
-	server.tool(
-		"excalidraw_repair_links",
-		"Batch replaces links across a drawing. Useful when a file was globally renamed.",
-		{
-			...FilePathSchema.shape,
-			pathUpdates: z
-				.record(z.string(), z.string())
-				.describe("Map of { 'old/path.md': 'new/path.md' }"),
-		},
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
+						const outMarkdown = rebuildMarkdown(newDoc);
+						await writeVaultFileAtomically(
+							vaultPath,
+							params.filePath,
+							outMarkdown,
+							fileStat,
+						);
 
-				const { doc: newDoc, repairs } = repairElementLinks(
-					doc,
-					params.pathUpdates as Record<string, string>,
-				);
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Link ${params.wikiLink} successfully attached to ${params.elementId}.`,
+								},
+							],
+						};
+					}
 
-				if (repairs.length === 0) {
-					return {
-						content: [{ type: "text", text: "No links required repairing." }],
-					};
+					case "remove": {
+						if (!params.elementId) {
+							throw new Error("elementId is required for 'remove' action");
+						}
+
+						const { content, fileStat } = await readVaultFile(
+							vaultPath,
+							params.filePath,
+						);
+						const doc = parseToDocument(content, params.filePath, fileStat);
+
+						const newDoc = removeElementLink(doc, params.elementId);
+
+						const outMarkdown = rebuildMarkdown(newDoc);
+						await writeVaultFileAtomically(
+							vaultPath,
+							params.filePath,
+							outMarkdown,
+							fileStat,
+						);
+
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Link removed from ${params.elementId}.`,
+								},
+							],
+						};
+					}
+
+					case "repair": {
+						const { content, fileStat } = await readVaultFile(
+							vaultPath,
+							params.filePath,
+						);
+						const doc = parseToDocument(content, params.filePath, fileStat);
+
+						const { doc: newDoc, repairs } = repairElementLinks(
+							doc,
+							(params.pathUpdates ?? {}) as Record<string, string>,
+						);
+
+						if (repairs.length === 0) {
+							return {
+								content: [
+									{ type: "text", text: "No links required repairing." },
+								],
+							};
+						}
+
+						const outMarkdown = rebuildMarkdown(newDoc);
+						await writeVaultFileAtomically(
+							vaultPath,
+							params.filePath,
+							outMarkdown,
+							fileStat,
+						);
+
+						const resultString = repairs
+							.map((r) =>
+								r.action === "removed"
+									? `[${r.elementId}] removed stale link: ${r.oldLink}`
+									: `[${r.elementId}] ${r.oldLink} -> ${r.newLink}`,
+							)
+							.join("\n");
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Repaired ${repairs.length} links:\n${resultString}`,
+								},
+							],
+						};
+					}
+
+					default:
+						return {
+							content: [{ type: "text", text: "Unknown action" }],
+						};
 				}
-
-				const outMarkdown = rebuildMarkdown(newDoc);
-				await writeVaultFileAtomically(
-					vaultPath,
-					params.filePath,
-					outMarkdown,
-					fileStat,
-				);
-
-				const resultString = repairs
-					.map((r) => `[${r.elementId}] ${r.oldLink} -> ${r.newLink}`)
-					.join("\n");
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Repaired ${repairs.length} links:\n${resultString}`,
-						},
-					],
-				};
 			});
 		},
 	);
 
-	// 4. Create Note from Element
-	server.tool(
-		"create_note_from_element",
-		"Creates a new Obsidian note from an element's text content and links the element to it.",
-		{
-			...FilePathSchema.shape,
-			elementId: z.string().describe("ID of the element to create a note from"),
-			notePath: z
-				.string()
-				.describe(
-					"Path for the new note (e.g., 'My Note' or 'Folder/My Note')",
-				),
-		},
-		async (params) => {
-			return withErrorHandling(async () => {
-				const vaultPath = getVaultPathOrThrow();
-				const { content, fileStat } = await readVaultFile(
-					vaultPath,
-					params.filePath,
-				);
-				const doc = parseToDocument(content, params.filePath, fileStat);
-
-				const { doc: newDoc, noteContent } = createNoteFromElement(
-					doc,
-					params.elementId,
-					params.notePath,
-				);
-
-				// Write the new note file
-				const noteFileName = `${params.notePath}.md`;
-				await writeVaultFileAtomically(vaultPath, noteFileName, noteContent);
-
-				// Update and save the drawing
-				const outMarkdown = rebuildMarkdown(newDoc);
-				await writeVaultFileAtomically(
-					vaultPath,
-					params.filePath,
-					outMarkdown,
-					fileStat,
-				);
-
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Created note [[${params.notePath}]] and linked element ${params.elementId} to it.`,
-						},
-					],
-				};
-			});
-		},
-	);
-
-	// 5. Suggest Links for Elements
-	server.tool(
+	// 2. Suggest Links for Elements
+	server.registerTool(
 		"suggest_links_for_elements",
-		"Suggests existing Vault notes as link candidates based on element text content.",
 		{
-			...FilePathSchema.shape,
-			elementIds: z
-				.array(z.string())
-				.describe("List of element IDs to suggest links for"),
-			maxSuggestions: z
-				.number()
-				.min(1)
-				.max(50)
-				.optional()
-				.describe(
-					"Maximum number of suggestions to return per element (default: 10)",
-				),
+			description:
+				"Suggests existing Vault notes as link candidates based on element text content.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				elementIds: z
+					.array(z.string())
+					.describe("List of element IDs to suggest links for"),
+				maxSuggestions: z
+					.number()
+					.min(1)
+					.max(50)
+					.optional()
+					.describe(
+						"Maximum number of suggestions to return per element (default: 10)",
+					),
+			},
+			annotations: {
+				readOnlyHint: true,
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -294,6 +328,64 @@ export function registerLinks(server: McpServer) {
 						{
 							type: "text",
 							text: JSON.stringify({ suggestions }, null, 2),
+						},
+					],
+				};
+			});
+		},
+	);
+
+	// 3. Create Note from Element
+	server.registerTool(
+		"create_note_from_element",
+		{
+			description:
+				"Creates a new Obsidian note from an element's text content and links the element to it.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				elementId: z
+					.string()
+					.describe("ID of the element to create a note from"),
+				notePath: z
+					.string()
+					.describe(
+						"Path for the new note (e.g., 'My Note' or 'Folder/My Note')",
+					),
+			},
+		},
+		async (params) => {
+			return withErrorHandling(async () => {
+				const vaultPath = getVaultPathOrThrow();
+				const { content, fileStat } = await readVaultFile(
+					vaultPath,
+					params.filePath,
+				);
+				const doc = parseToDocument(content, params.filePath, fileStat);
+
+				const { doc: newDoc, noteContent } = createNoteFromElement(
+					doc,
+					params.elementId,
+					params.notePath,
+				);
+
+				// Write the new note file
+				const noteFileName = `${params.notePath}.md`;
+				await writeVaultFileAtomically(vaultPath, noteFileName, noteContent);
+
+				// Update and save the drawing
+				const outMarkdown = rebuildMarkdown(newDoc);
+				await writeVaultFileAtomically(
+					vaultPath,
+					params.filePath,
+					outMarkdown,
+					fileStat,
+				);
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Created note [[${params.notePath}]] and linked element ${params.elementId} to it.`,
 						},
 					],
 				};

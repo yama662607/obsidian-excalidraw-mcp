@@ -5,6 +5,8 @@ import {
 	extractElementLinks,
 	extractTextElements,
 	parseDrawing,
+	parseToDocument,
+	rebuildMarkdown,
 	splitIntoSections,
 } from "./parser";
 
@@ -79,6 +81,37 @@ describe("Excalidraw MD Parser", () => {
 
 			expect(scene.type).toBe("excalidraw");
 			expect(scene.elements.length).toBe(5); // rectangle, text, ellipse, text, arrow
+		});
+	});
+
+	describe("parseToDocument", () => {
+		it("should parse frontmatter into structured object", () => {
+			const doc = parseToDocument(uncompressedItem, "sample.excalidraw.md", {
+				mtimeMs: 1,
+				size: uncompressedItem.length,
+				sha256: "x".repeat(64),
+			});
+
+			expect(doc.frontmatter).toBeTruthy();
+			expect(doc.frontmatter?.["excalidraw-plugin"]).toBe("parsed");
+		});
+	});
+
+	describe("rebuildMarkdown", () => {
+		it("should preserve insertion order for text and element links", () => {
+			const doc = parseToDocument(uncompressedItem, "sample.excalidraw.md", {
+				mtimeMs: 1,
+				size: uncompressedItem.length,
+				sha256: "x".repeat(64),
+			});
+
+			const rebuilt = rebuildMarkdown(doc);
+			expect(rebuilt.indexOf("Hello World ^text1")).toBeLessThan(
+				rebuilt.indexOf("This is a concept ^text2"),
+			);
+			expect(rebuilt.indexOf("[[notes/concept-a]] ^elem1")).toBeLessThan(
+				rebuilt.indexOf("[[notes/concept-b|Concept B]] ^elem2"),
+			);
 		});
 	});
 });

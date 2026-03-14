@@ -102,34 +102,67 @@ export function removeElementLink(
  */
 export function repairElementLinks(
 	doc: ExcalidrawMdDocument,
-	pathUpdates: Record<string, string>,
+	pathUpdates: Record<string, string> = {},
 ): {
 	doc: ExcalidrawMdDocument;
-	repairs: Array<{ elementId: ElementId; oldLink: string; newLink: string }>;
+	repairs: Array<{
+		elementId: ElementId;
+		action: "updated" | "removed";
+		oldLink: string;
+		newLink: string | null;
+	}>;
 } {
 	let hasChanges = false;
 	const elementLinks = { ...doc.elementLinks };
 	let elements = [...doc.drawing.elements];
+	const existingElementIds = new Set(elements.map((el) => el.id));
 	const repairs: Array<{
 		elementId: ElementId;
+		action: "updated" | "removed";
 		oldLink: string;
-		newLink: string;
+		newLink: string | null;
 	}> = [];
 
+	const normalizeTargetPath = (targetPath: string): string => {
+		let next = targetPath.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+		next = next.replace(/\/+/g, "/");
+		next = next.replace(/\.md$/i, "");
+		return next;
+	};
+
 	for (const [id, rawLink] of Object.entries(elementLinks)) {
+		if (!existingElementIds.has(id)) {
+			delete elementLinks[id];
+			hasChanges = true;
+			repairs.push({
+				elementId: id,
+				action: "removed",
+				oldLink: rawLink,
+				newLink: null,
+			});
+			continue;
+		}
+
 		try {
 			const parsed = parseWikiLink(rawLink);
+			const normalizedPath = normalizeTargetPath(parsed.targetPath);
+			const rewrittenPath = pathUpdates[normalizedPath] || normalizedPath;
+			const newLink = buildWikiLink(
+				rewrittenPath,
+				parsed.alias,
+				parsed.subpath,
+			);
 
-			// If the target path is in the update map, rewrite it
-			if (pathUpdates[parsed.targetPath]) {
-				const newPath = pathUpdates[parsed.targetPath];
-				const newLink = buildWikiLink(newPath, parsed.alias, parsed.subpath);
-
+			if (newLink !== rawLink) {
 				elementLinks[id] = newLink;
 				hasChanges = true;
-				repairs.push({ elementId: id, oldLink: rawLink, newLink });
+				repairs.push({
+					elementId: id,
+					action: "updated",
+					oldLink: rawLink,
+					newLink,
+				});
 
-				// Update the drawing scene element's internal link property too
 				elements = elements.map((el) => {
 					if (el.id === id) {
 						return {
@@ -142,9 +175,15 @@ export function repairElementLinks(
 					return el;
 				});
 			}
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		} catch (_e: unknown) {
-			// Ignore invalid links during repair phase
+			delete elementLinks[id];
+			hasChanges = true;
+			repairs.push({
+				elementId: id,
+				action: "removed",
+				oldLink: rawLink,
+				newLink: null,
+			});
 		}
 	}
 

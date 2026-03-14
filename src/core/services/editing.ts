@@ -336,6 +336,17 @@ export function deleteElements(
 	ids: ElementId[],
 ): ExcalidrawMdDocument {
 	const idSet = new Set(ids);
+	const originalBindingState = new Map<
+		string,
+		{ startId: string | null; endId: string | null }
+	>();
+
+	for (const el of doc.drawing.elements) {
+		originalBindingState.set(el.id, {
+			startId: getBindingElementId(el.startBinding),
+			endId: getBindingElementId(el.endBinding),
+		});
+	}
 
 	// Also collect text nodes bound to deleted containers
 	const containersToDelete = doc.drawing.elements.filter((el) =>
@@ -391,6 +402,57 @@ export function deleteElements(
 			return newEl;
 		});
 
+	const danglingEdgeIds = new Set<string>();
+	for (const el of newElements) {
+		if (el.type !== "arrow" && el.type !== "line") {
+			continue;
+		}
+
+		const original = originalBindingState.get(el.id);
+		const hadBinding = Boolean(original?.startId || original?.endId);
+		if (!hadBinding) {
+			continue;
+		}
+
+		const hasStart = Boolean(getBindingElementId(el.startBinding));
+		const hasEnd = Boolean(getBindingElementId(el.endBinding));
+		if (!hasStart || !hasEnd) {
+			danglingEdgeIds.add(el.id);
+			for (const bound of getBoundElements(el.boundElements)) {
+				if (bound.type === "text") {
+					danglingEdgeIds.add(bound.id);
+				}
+			}
+		}
+	}
+
+	for (const edgeId of danglingEdgeIds) {
+		idSet.add(edgeId);
+	}
+
+	const finalElements = newElements
+		.filter((el) => !idSet.has(el.id))
+		.map((el) => {
+			if (!el.boundElements) {
+				return el;
+			}
+
+			const currentBounds = getBoundElements(el.boundElements);
+			const filteredBounds = currentBounds.filter(
+				(bound) => !idSet.has(bound.id),
+			);
+			if (filteredBounds.length === currentBounds.length) {
+				return el;
+			}
+
+			return {
+				...el,
+				boundElements: filteredBounds.length > 0 ? filteredBounds : null,
+				updated: Date.now(),
+				version: ((el.version as number) || 1) + 1,
+			};
+		});
+
 	const textElements = { ...doc.textElements };
 	const elementLinks = { ...doc.elementLinks };
 
@@ -406,16 +468,16 @@ export function deleteElements(
 		elementLinks,
 		drawing: {
 			...doc.drawing,
-			elements: newElements,
+			elements: finalElements,
 		},
 	};
 }
 
 export type ArrangeAction =
 	| {
-			type: "align";
-			axis: "left" | "center" | "right" | "top" | "middle" | "bottom";
-	  }
+		type: "align";
+		axis: "left" | "center" | "right" | "top" | "middle" | "bottom";
+	}
 	| { type: "distribute"; axis: "horizontal" | "vertical" }
 	| { type: "group" }
 	| { type: "ungroup" }

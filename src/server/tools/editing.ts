@@ -21,19 +21,22 @@ import {
 
 export function registerEditing(server: McpServer) {
 	// 1. Add Node
-	server.tool(
+	server.registerTool(
 		"add_node",
-		"Adds a new node (rectangle, text, etc.) to an Excalidraw document.",
 		{
-			...FilePathSchema.shape,
-			type: z
-				.enum(["rectangle", "ellipse", "diamond", "text", "frame"])
-				.describe("Type of node"),
-			x: z.number(),
-			y: z.number(),
-			width: z.number().optional(),
-			height: z.number().optional(),
-			text: z.string().optional().describe("Text to display inside the node"),
+			description:
+				"Adds a new node (rectangle, text, etc.) to an Excalidraw document.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				type: z
+					.enum(["rectangle", "ellipse", "diamond", "text", "frame"])
+					.describe("Type of node"),
+				x: z.number(),
+				y: z.number(),
+				width: z.number().optional(),
+				height: z.number().optional(),
+				text: z.string().optional().describe("Text to display inside the node"),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -67,15 +70,17 @@ export function registerEditing(server: McpServer) {
 	);
 
 	// 2. Add Edge
-	server.tool(
+	server.registerTool(
 		"add_edge",
-		"Links two nodes together with an arrow or line.",
 		{
-			...FilePathSchema.shape,
-			startId: z.string().describe("Element ID to start the edge from"),
-			endId: z.string().describe("Element ID to end the edge at"),
-			type: z.enum(["arrow", "line"]).optional(),
-			text: z.string().optional().describe("Text label to put on the edge"),
+			description: "Links two nodes together with an arrow or line.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				startId: z.string().describe("Element ID to start the edge from"),
+				endId: z.string().describe("Element ID to end the edge at"),
+				type: z.enum(["arrow", "line"]).optional(),
+				text: z.string().optional().describe("Text label to put on the edge"),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -109,20 +114,23 @@ export function registerEditing(server: McpServer) {
 	);
 
 	// 3. Update Elements
-	server.tool(
+	server.registerTool(
 		"update_elements",
-		"Updates properties of existing elements (e.g. text content, coordinates).",
 		{
-			...FilePathSchema.shape,
-			patches: z
-				.array(
-					z
-						.object({
-							id: z.string(),
-						})
-						.catchall(z.unknown()),
-				)
-				.describe("Array of patches. Must include `id`."),
+			description:
+				"Updates properties of existing elements (e.g. text content, coordinates).",
+			inputSchema: {
+				...FilePathSchema.shape,
+				patches: z
+					.array(
+						z
+							.object({
+								id: z.string(),
+							})
+							.catchall(z.unknown()),
+					)
+					.describe("Array of patches. Must include `id`."),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -153,12 +161,17 @@ export function registerEditing(server: McpServer) {
 	);
 
 	// 4. Delete Elements
-	server.tool(
+	server.registerTool(
 		"delete_elements",
-		"Deletes elements by IDs and cleans up their connections.",
 		{
-			...FilePathSchema.shape,
-			ids: z.array(z.string()).describe("List of element IDs to delete"),
+			description: "Deletes elements by IDs and cleans up their connections.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				ids: z.array(z.string()).describe("List of element IDs to delete"),
+			},
+			annotations: {
+				destructiveHint: true,
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {
@@ -192,37 +205,40 @@ export function registerEditing(server: McpServer) {
 	);
 
 	// 5. Arrange Elements
-	server.tool(
+	server.registerTool(
 		"arrange_elements",
-		"Arranges elements by aligning, distributing, grouping, or locking them.",
 		{
-			...FilePathSchema.shape,
-			ids: z.array(z.string()).describe("List of element IDs to arrange"),
-			action: z
-				.discriminatedUnion("type", [
-					z.object({
-						type: z.literal("align"),
-						axis: z.enum([
-							"left",
-							"center",
-							"right",
-							"top",
-							"middle",
-							"bottom",
-						]),
-					}),
-					z.object({
-						type: z.literal("distribute"),
-						axis: z.enum(["horizontal", "vertical"]),
-					}),
-					z.object({ type: z.literal("group") }),
-					z.object({ type: z.literal("ungroup") }),
-					z.object({ type: z.literal("lock") }),
-					z.object({ type: z.literal("unlock") }),
-				])
-				.describe(
-					"Arrangement action: align (left/center/right/top/middle/bottom), distribute (horizontal/vertical), group, ungroup, lock, or unlock",
-				),
+			description:
+				"Arranges elements by aligning, distributing, grouping, or locking them.",
+			inputSchema: {
+				...FilePathSchema.shape,
+				ids: z.array(z.string()).describe("List of element IDs to arrange"),
+				action: z
+					.discriminatedUnion("type", [
+						z.object({
+							type: z.literal("align"),
+							axis: z.enum([
+								"left",
+								"center",
+								"right",
+								"top",
+								"middle",
+								"bottom",
+							]),
+						}),
+						z.object({
+							type: z.literal("distribute"),
+							axis: z.enum(["horizontal", "vertical"]),
+						}),
+						z.object({ type: z.literal("group") }),
+						z.object({ type: z.literal("ungroup") }),
+						z.object({ type: z.literal("lock") }),
+						z.object({ type: z.literal("unlock") }),
+					])
+					.describe(
+						"Arrangement action: align (left/center/right/top/middle/bottom), distribute (horizontal/vertical), group, ungroup, lock, or unlock",
+					),
+			},
 		},
 		async (params) => {
 			return withErrorHandling(async () => {

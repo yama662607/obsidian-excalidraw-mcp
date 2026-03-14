@@ -205,7 +205,7 @@ describe("Element Editing Service", () => {
 	});
 
 	describe("deleteElements", () => {
-		it("should delete nodes and bounded elements, plus clean up references", () => {
+		it("should delete nodes and bounded elements, and remove dangling edges", () => {
 			// Setup: n1[with text] ----> n2
 			let curr = addNode(doc, { type: "rectangle", x: 0, y: 0, text: "Box1" });
 			const n1Id = curr.addedIds[0]; // rectangle
@@ -223,15 +223,12 @@ describe("Element Editing Service", () => {
 			const deletedDoc = deleteElements(testDoc, [n1Id]);
 
 			// Assertions
-			// It should delete n1, and automatically n1's text. n2 and edge remain but edge loses startBinding
-			expect(deletedDoc.drawing.elements.length).toBe(2);
-
-			const remainingEdge = getRequiredElement(
-				deletedDoc.drawing.elements,
-				edgeId,
-			);
-			expect(remainingEdge.startBinding).toBeNull();
-			expect(getBindingElementId(remainingEdge.endBinding)).toBe(n2Id); // end binding stays intact
+			// It should delete n1 and n1's text, and remove the now-dangling edge.
+			expect(deletedDoc.drawing.elements.length).toBe(1);
+			expect(
+				deletedDoc.drawing.elements.find((el) => el.id === edgeId),
+			).toBeUndefined();
+			expect(deletedDoc.drawing.elements[0].id).toBe(n2Id);
 
 			// Text dictionary should be cleaned up
 			expect(Object.keys(deletedDoc.textElements).length).toBe(0);

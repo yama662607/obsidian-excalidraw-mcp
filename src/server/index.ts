@@ -11,11 +11,7 @@ export const server = new McpServer({
 	version: "1.0.0",
 });
 
-// Register capability modules
-registerParsers(server);
-registerEditing(server);
-registerLinks(server);
-registerAnalysis(server);
+let modulesRegistered = false;
 
 /**
  * Main entry point for the MCP Server.
@@ -29,11 +25,13 @@ export async function runServer() {
 		process.exit(1);
 	}
 
-	// Register capability modules
-	registerParsers(server);
-	registerEditing(server);
-	registerLinks(server);
-	registerAnalysis(server);
+	if (!modulesRegistered) {
+		registerParsers(server);
+		registerEditing(server);
+		registerLinks(server);
+		registerAnalysis(server);
+		modulesRegistered = true;
+	}
 
 	// Connect standard I/O transport
 	const transport = new StdioServerTransport();

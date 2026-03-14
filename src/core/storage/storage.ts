@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
 	mkdir,
+	open,
 	readdir,
 	readFile,
 	rename,
@@ -8,7 +9,14 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+} from "node:path";
 import { ErrorCodes, ExcalidrawMcpError, type FileStat } from "@core/types";
 
 function getErrorCode(error: unknown): string | undefined {
@@ -40,8 +48,9 @@ export function validateVaultPath(
 ): string {
 	const absoluteRoot = resolve(vaultRoot);
 	const absoluteTarget = resolve(vaultRoot, targetPath);
+	const rel = relative(absoluteRoot, absoluteTarget);
 
-	if (!absoluteTarget.startsWith(absoluteRoot)) {
+	if (rel.startsWith("..") || isAbsolute(rel)) {
 		throw new ExcalidrawMcpError(
 			ErrorCodes.E_STORAGE_PATH_OUTSIDE_VAULT,
 			`Operation rejected: Target path is outside the allowed Vault root (${absoluteTarget})`,
@@ -137,9 +146,11 @@ export async function writeVaultFileAtomically(
 	const tmpPath = `${absolutePath}.tmp.${Date.now()}`;
 
 	try {
-		await writeFile(tmpPath, content, "utf-8");
-		// Ensure data is synced to disk (fsync is not exposed cleanly in fs/promises without opening a handle,
-		// but Node.js rename operation is POSIX atomic on most filesystems)
+		const tmpHandle = await open(tmpPath, "w");
+		await tmpHandle.writeFile(content, "utf-8");
+		await tmpHandle.sync();
+		await tmpHandle.close();
+
 		await rename(tmpPath, absolutePath);
 	} catch (error: unknown) {
 		try {
@@ -207,7 +218,19 @@ export async function restoreSnapshot(
 ): Promise<void> {
 	const _targetPath = validateVaultPath(vaultRoot, relativePath);
 	const snapshotRoot = join(vaultRoot, SNAPSHOT_DIR_NAME);
-	const snapshotPath = join(snapshotRoot, snapshotFileName);
+
+	if (
+		snapshotFileName.includes("/") ||
+		snapshotFileName.includes("\\") ||
+		snapshotFileName.includes("..")
+	) {
+		throw new ExcalidrawMcpError(
+			ErrorCodes.E_STORAGE_PATH_OUTSIDE_VAULT,
+			`Invalid snapshot file name: ${snapshotFileName}`,
+		);
+	}
+
+	const snapshotPath = validateVaultPath(snapshotRoot, snapshotFileName);
 
 	try {
 		const content = await readFile(snapshotPath, "utf-8");
