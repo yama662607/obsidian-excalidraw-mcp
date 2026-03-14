@@ -1,0 +1,34 @@
+# Source files
+src/
+*.ts
+!dist/**/*.d.ts
+
+# Development
+.tsup/
+*.log
+
+# Tests
+fixtures/
+.vitest/
+*.test.ts
+*.test.js
+
+# Docs (keep README and LICENSE)
+docs/
+openspec/
+*.md
+!README.md
+!LICENSE
+
+# Config files
+tsconfig.json
+biome.json
+vitest.config.ts
+justfile
+
+# Other
+.git/
+.github/
+.gitignore
+.agent/
+.reference/
