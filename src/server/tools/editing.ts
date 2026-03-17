@@ -11,6 +11,7 @@ import {
 	updateElements,
 } from "@core/services/editing";
 import { readVaultFile, writeVaultFileAtomically } from "@core/storage/storage";
+import { ErrorCodes, ExcalidrawMcpError } from "@core/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -18,6 +19,54 @@ import {
 	getVaultPathOrThrow,
 	withErrorHandling,
 } from "./parsers";
+
+const ArrangeActionObjectSchema = z.discriminatedUnion("type", [
+	z.object({
+		type: z.literal("align"),
+		axis: z.enum(["left", "center", "right", "top", "middle", "bottom"]),
+	}),
+	z.object({
+		type: z.literal("distribute"),
+		axis: z.enum(["horizontal", "vertical"]),
+	}),
+	z.object({ type: z.literal("group") }),
+	z.object({ type: z.literal("ungroup") }),
+	z.object({ type: z.literal("lock") }),
+	z.object({ type: z.literal("unlock") }),
+]);
+
+const ArrangeActionStringSchema = z.enum([
+	"align",
+	"distribute",
+	"group",
+	"ungroup",
+	"lock",
+	"unlock",
+]);
+
+function normalizeArrangeAction(
+	action: ArrangeOptions["action"] | z.infer<typeof ArrangeActionStringSchema>,
+): ArrangeOptions["action"] {
+	if (typeof action !== "string") {
+		return action;
+	}
+
+	if (action === "align") {
+		throw new ExcalidrawMcpError(
+			ErrorCodes.E_OPERATION_UNSUPPORTED,
+			'arrange_elements action="align" requires axis. Use action: {"type":"align","axis":"left|center|right|top|middle|bottom"}.',
+		);
+	}
+
+	if (action === "distribute") {
+		throw new ExcalidrawMcpError(
+			ErrorCodes.E_OPERATION_UNSUPPORTED,
+			'arrange_elements action="distribute" requires axis. Use action: {"type":"distribute","axis":"horizontal|vertical"}.',
+		);
+	}
+
+	return { type: action };
+}
 
 export function registerEditing(server: McpServer) {
 	// 1. Add Node
@@ -214,29 +263,9 @@ export function registerEditing(server: McpServer) {
 				...FilePathSchema.shape,
 				ids: z.array(z.string()).describe("List of element IDs to arrange"),
 				action: z
-					.discriminatedUnion("type", [
-						z.object({
-							type: z.literal("align"),
-							axis: z.enum([
-								"left",
-								"center",
-								"right",
-								"top",
-								"middle",
-								"bottom",
-							]),
-						}),
-						z.object({
-							type: z.literal("distribute"),
-							axis: z.enum(["horizontal", "vertical"]),
-						}),
-						z.object({ type: z.literal("group") }),
-						z.object({ type: z.literal("ungroup") }),
-						z.object({ type: z.literal("lock") }),
-						z.object({ type: z.literal("unlock") }),
-					])
+					.union([ArrangeActionObjectSchema, ArrangeActionStringSchema])
 					.describe(
-						"Arrangement action: align (left/center/right/top/middle/bottom), distribute (horizontal/vertical), group, ungroup, lock, or unlock",
+						'Arrangement action. Preferred object format: {"type":"align","axis":"left"} or {"type":"distribute","axis":"horizontal"}. Legacy string format is accepted for group/ungroup/lock/unlock.',
 					),
 			},
 		},
@@ -248,10 +277,11 @@ export function registerEditing(server: McpServer) {
 					params.filePath,
 				);
 				const doc = parseToDocument(content, params.filePath, fileStat);
+				const normalizedAction = normalizeArrangeAction(params.action);
 
 				const arrangeOptions: ArrangeOptions = {
 					ids: params.ids,
-					action: params.action,
+					action: normalizedAction,
 				};
 				const newDoc = arrangeElements(doc, arrangeOptions);
 
@@ -264,8 +294,8 @@ export function registerEditing(server: McpServer) {
 				);
 
 				const actionDesc =
-					"type" in params.action
-						? `${params.action.type}${"axis" in params.action ? ` (${params.action.axis})` : ""}`
+					"type" in normalizedAction
+						? `${normalizedAction.type}${"axis" in normalizedAction ? ` (${normalizedAction.axis})` : ""}`
 						: "unknown";
 
 				return {

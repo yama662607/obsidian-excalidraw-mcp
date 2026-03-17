@@ -264,4 +264,43 @@ describe("server tools/parsers", () => {
 			await rm(tempFilePath, { force: true });
 		}
 	});
+
+	it("returns a clear error when to-markdown is called with markdown input", async () => {
+		const tempMdPath = `tmp-parsers-${Date.now()}-input.excalidraw.md`;
+		const tempOutputPath = `tmp-parsers-${Date.now()}-output.excalidraw.md`;
+		await writeFile(
+			tempMdPath,
+			createEmbeddableLinkedDrawingMarkdown(),
+			"utf-8",
+		);
+
+		try {
+			const { server, handlers } = createToolServerForTests();
+			registerParsers(server);
+			const convertDrawingFormat = handlers.get("convert_drawing_format");
+			expect(convertDrawingFormat).toBeDefined();
+
+			const result = (await convertDrawingFormat?.({
+				filePath: tempMdPath,
+				direction: "to-markdown",
+				outputPath: tempOutputPath,
+			})) as {
+				isError?: boolean;
+				content: Array<{ text: string }>;
+			};
+
+			expect(result.isError).toBe(true);
+			const payload = JSON.parse(result.content[0].text) as {
+				isError: boolean;
+				code: string;
+				message: string;
+			};
+			expect(payload.code).toBe(ErrorCodes.E_PARSE_INVALID_MD);
+			expect(payload.message).toContain("expects a JSON input file");
+			expect(payload.message).toContain('direction "to-json"');
+		} finally {
+			await rm(tempMdPath, { force: true });
+			await rm(tempOutputPath, { force: true });
+		}
+	});
 });

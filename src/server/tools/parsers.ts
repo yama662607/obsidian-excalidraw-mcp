@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { parseToDocument, rebuildMarkdown } from "@core/parser/parser";
+import { collectAllElementLinks } from "@core/services/links";
+export { collectAllElementLinks };
+
 import {
 	createSnapshot,
 	listSnapshots,
@@ -71,27 +74,8 @@ export function withErrorHandling<T>(fn: () => Promise<T>): Promise<
  * Counts active elements that carry a link, regardless of where the link is stored.
  */
 export function countLinkedElements(doc: ExcalidrawMdDocument): number {
-	const activeElementIds = new Set(
-		doc.drawing.elements.filter((el) => !el.isDeleted).map((el) => el.id),
-	);
-	const linkedElementIds = new Set<string>();
-
-	for (const elementId of Object.keys(doc.elementLinks)) {
-		if (activeElementIds.has(elementId)) {
-			linkedElementIds.add(elementId);
-		}
-	}
-
-	for (const element of doc.drawing.elements) {
-		if (element.isDeleted) {
-			continue;
-		}
-		if (typeof element.link === "string" && element.link.trim() !== "") {
-			linkedElementIds.add(element.id);
-		}
-	}
-
-	return linkedElementIds.size;
+	const allLinks = collectAllElementLinks(doc);
+	return Object.keys(allLinks).length;
 }
 
 export function getVaultPathOrThrow(): string {
@@ -206,6 +190,8 @@ export function registerParsers(server: McpServer) {
 							);
 						}
 
+						const allLinks = collectAllElementLinks(doc);
+
 						return {
 							content: [
 								{
@@ -214,7 +200,7 @@ export function registerParsers(server: McpServer) {
 										{
 											element,
 											text: doc.textElements[elementId] ?? null,
-											link: doc.elementLinks[elementId] ?? null,
+											link: allLinks[elementId] ?? null,
 										},
 										null,
 										2,
@@ -240,12 +226,16 @@ export function registerParsers(server: McpServer) {
 					}
 
 					case "links": {
+						const allLinks = collectAllElementLinks(doc);
 						return {
 							content: [
 								{
 									type: "text",
 									text: JSON.stringify(
-										{ elementLinks: doc.elementLinks },
+										{
+											elementLinks: allLinks,
+											count: Object.keys(allLinks).length,
+										},
 										null,
 										2,
 									),
@@ -401,7 +391,9 @@ export function registerParsers(server: McpServer) {
 				direction: z
 					.enum(["to-json", "to-markdown"])
 					.optional()
-					.describe("Conversion direction: to-json or to-markdown"),
+					.describe(
+						"Conversion direction: to-json (.excalidraw.md -> JSON) or to-markdown (JSON -> .excalidraw.md).",
+					),
 				outputPath: z
 					.string()
 					.describe(
@@ -456,6 +448,14 @@ export function registerParsers(server: McpServer) {
 					case "to-markdown": {
 						// Read JSON file and create .excalidraw.md
 						const { content } = await readVaultFile(vaultPath, params.filePath);
+						const normalizedInputPath = params.filePath.toLowerCase();
+
+						if (normalizedInputPath.endsWith(".md")) {
+							throw new ExcalidrawMcpError(
+								ErrorCodes.E_PARSE_INVALID_MD,
+								`to-markdown expects a JSON input file, but received markdown: ${params.filePath}. Use direction "to-json" for .excalidraw.md input.`,
+							);
+						}
 
 						try {
 							const scene = JSON.parse(content);
@@ -493,7 +493,7 @@ export function registerParsers(server: McpServer) {
 						} catch (error: unknown) {
 							throw new ExcalidrawMcpError(
 								ErrorCodes.E_PARSE_INVALID_MD,
-								`Failed to parse JSON file: ${error instanceof Error ? error.message : String(error)}`,
+								`to-markdown expects valid Excalidraw JSON input: ${params.filePath}. Parse failed: ${error instanceof Error ? error.message : String(error)}`,
 							);
 						}
 					}

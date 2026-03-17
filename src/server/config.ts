@@ -3,7 +3,7 @@
  */
 export const config = {
 	// Vault path can be provided via environment variable OR command line argument
-	vaultPath: process.env.OBSIDIAN_VAULT_PATH || getVaultArg() || process.cwd(),
+	vaultPath: process.env.OBSIDIAN_VAULT_PATH || getVaultArg(),
 };
 
 function getVaultArg(): string | undefined {
