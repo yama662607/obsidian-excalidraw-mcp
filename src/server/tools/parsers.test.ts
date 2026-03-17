@@ -146,6 +146,7 @@ describe("server tools/parsers", () => {
 			});
 
 			expect(result).toHaveProperty("isError", true);
+			expect(result).toHaveProperty("structuredContent");
 			const payload = JSON.parse(
 				(result as { content: Array<{ text: string }> }).content[0].text,
 			) as {
@@ -154,11 +155,22 @@ describe("server tools/parsers", () => {
 				message: string;
 				correlationId: string;
 			};
+			const structuredPayload = (
+				result as {
+					structuredContent: {
+						isError: boolean;
+						code: string;
+						message: string;
+						correlationId: string;
+					};
+				}
+			).structuredContent;
 
 			expect(payload.isError).toBe(true);
 			expect(payload.code).toBe(testCase.code);
 			expect(payload.message).toBe(testCase.message);
 			expect(payload.correlationId.length).toBeGreaterThan(0);
+			expect(structuredPayload).toEqual(payload);
 		}
 	});
 
@@ -228,6 +240,12 @@ describe("server tools/parsers", () => {
 				elementId: "not-existing-id",
 			})) as {
 				isError?: boolean;
+				structuredContent?: {
+					isError: boolean;
+					code: string;
+					message: string;
+					correlationId: string;
+				};
 				content: Array<{ text: string }>;
 			};
 
@@ -241,6 +259,7 @@ describe("server tools/parsers", () => {
 			expect(payload.isError).toBe(true);
 			expect(payload.code).toBe(ErrorCodes.E_NOT_FOUND_ELEMENT);
 			expect(payload.message).toContain("Element not found");
+			expect(result.structuredContent).toEqual(payload);
 		} finally {
 			await rm(tempFilePath, { force: true });
 		}

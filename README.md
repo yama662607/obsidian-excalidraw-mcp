@@ -20,7 +20,12 @@ MCP server for safely editing `.excalidraw.md` files as visual knowledge objects
 
 ### Error response contract
 
-On failure, tools return a structured error payload:
+On failure, tools return `isError: true` and expose the same payload in both:
+
+- `structuredContent` (object)
+- `content[0].text` (JSON string for compatibility)
+
+Payload schema:
 
 ```json
 {

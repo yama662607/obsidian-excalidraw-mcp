@@ -20,29 +20,36 @@ export function withErrorHandling<T>(fn: () => Promise<T>): Promise<
 	| T
 	| {
 			isError: true;
+			structuredContent: {
+				isError: true;
+				code: ErrorCode;
+				message: string;
+				correlationId: string;
+			};
 			content: Array<{ type: "text"; text: string }>;
 	  }
 > {
 	return fn().catch((error: unknown) => {
 		const correlationId = randomUUID();
-		const buildErrorResponse = (code: ErrorCode, message: string) => ({
-			isError: true as const,
-			content: [
-				{
-					type: "text" as const,
-					text: JSON.stringify(
-						{
-							isError: true,
-							code,
-							message,
-							correlationId,
-						},
-						null,
-						2,
-					),
-				},
-			],
-		});
+		const buildErrorResponse = (code: ErrorCode, message: string) => {
+			const payload = {
+				isError: true as const,
+				code,
+				message,
+				correlationId,
+			};
+
+			return {
+				isError: true as const,
+				structuredContent: payload,
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify(payload, null, 2),
+					},
+				],
+			};
+		};
 
 		if (error instanceof ExcalidrawMcpError) {
 			return buildErrorResponse(error.code, error.message);

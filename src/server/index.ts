@@ -7,10 +7,11 @@ import { registerAnalysis } from "./tools/analysis";
 import { registerEditing } from "./tools/editing";
 import { registerLinks } from "./tools/links";
 import { registerParsers } from "./tools/parsers";
+import { resolveServerVersion } from "./version";
 
 export const server = new McpServer({
 	name: "obsidian-excalidraw-visual-knowledge",
-	version: "1.0.0",
+	version: resolveServerVersion(),
 });
 
 let modulesRegistered = false;
