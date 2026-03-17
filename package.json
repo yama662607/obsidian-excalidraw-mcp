@@ -1,9 +1,14 @@
 {
 	"name": "@yama662607/obsidian-excalidraw-mcp",
-	"version": "0.2.6",
+	"version": "0.2.8",
 	"description": "MCP server for safely editing .excalidraw.md files as visual knowledge objects in Obsidian",
 	"type": "module",
 	"main": "dist/index.js",
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"publishConfig": {
 		"access": "public"
 	},
