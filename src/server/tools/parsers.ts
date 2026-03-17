@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { parseToDocument, rebuildMarkdown } from "@core/parser/parser";
 import {
 	createSnapshot,
@@ -6,6 +7,7 @@ import {
 	restoreSnapshot,
 	writeVaultFileAtomically,
 } from "@core/storage/storage";
+import type { ErrorCode, ExcalidrawMdDocument } from "@core/types";
 import { ErrorCodes, ExcalidrawMcpError } from "@core/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -14,16 +16,75 @@ import { config } from "../config";
 /**
  * Handle ExcalidrawMcpError and other errors consistently for MCP tools.
  */
-export function withErrorHandling<T>(fn: () => Promise<T>): Promise<T> {
+export function withErrorHandling<T>(fn: () => Promise<T>): Promise<
+	| T
+	| {
+			isError: true;
+			content: Array<{ type: "text"; text: string }>;
+	  }
+> {
 	return fn().catch((error: unknown) => {
+		const correlationId = randomUUID();
+		const buildErrorResponse = (code: ErrorCode, message: string) => ({
+			isError: true as const,
+			content: [
+				{
+					type: "text" as const,
+					text: JSON.stringify(
+						{
+							isError: true,
+							code,
+							message,
+							correlationId,
+						},
+						null,
+						2,
+					),
+				},
+			],
+		});
+
 		if (error instanceof ExcalidrawMcpError) {
-			throw new Error(`[${error.code}] ${error.message}`);
+			return buildErrorResponse(error.code, error.message);
 		}
 		if (error instanceof Error) {
-			throw new Error(`Internal Error: ${error.message}`);
+			return buildErrorResponse(
+				ErrorCodes.E_OPERATION_UNSUPPORTED,
+				`Internal Error: ${error.message}`,
+			);
 		}
-		throw new Error(`Internal Error: ${String(error)}`);
+		return buildErrorResponse(
+			ErrorCodes.E_OPERATION_UNSUPPORTED,
+			`Internal Error: ${String(error)}`,
+		);
 	});
+}
+
+/**
+ * Counts active elements that carry a link, regardless of where the link is stored.
+ */
+export function countLinkedElements(doc: ExcalidrawMdDocument): number {
+	const activeElementIds = new Set(
+		doc.drawing.elements.filter((el) => !el.isDeleted).map((el) => el.id),
+	);
+	const linkedElementIds = new Set<string>();
+
+	for (const elementId of Object.keys(doc.elementLinks)) {
+		if (activeElementIds.has(elementId)) {
+			linkedElementIds.add(elementId);
+		}
+	}
+
+	for (const element of doc.drawing.elements) {
+		if (element.isDeleted) {
+			continue;
+		}
+		if (typeof element.link === "string" && element.link.trim() !== "") {
+			linkedElementIds.add(element.id);
+		}
+	}
+
+	return linkedElementIds.size;
 }
 
 export function getVaultPathOrThrow(): string {
@@ -82,7 +143,6 @@ export function registerParsers(server: McpServer) {
 						const edgeCount = activeElements.filter(
 							(el) => el.type === "arrow" || el.type === "line",
 						).length;
-						const linkedElementIds = Object.keys(doc.elementLinks);
 
 						return {
 							content: [
@@ -96,7 +156,7 @@ export function registerParsers(server: McpServer) {
 												totalElements: activeElements.length,
 												edgeCount,
 												textElementsCount: Object.keys(doc.textElements).length,
-												linkedElementsCount: linkedElementIds.length,
+												linkedElementsCount: countLinkedElements(doc),
 											},
 										},
 										null,

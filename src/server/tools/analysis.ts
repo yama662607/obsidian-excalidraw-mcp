@@ -8,6 +8,7 @@ import { readVaultFile } from "@core/storage/storage";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+	countLinkedElements,
 	FilePathSchema,
 	getVaultPathOrThrow,
 	withErrorHandling,
@@ -86,8 +87,7 @@ export function registerAnalysis(server: McpServer) {
 												nodesCount: graph.nodes.length,
 												edgesCount: graph.edges.length,
 												textElementsCount: Object.keys(doc.textElements).length,
-												linkedElementsCount: Object.keys(doc.elementLinks)
-													.length,
+												linkedElementsCount: countLinkedElements(doc),
 												unlinkedElementsCount: unlinked.length,
 												duplicateLinkGroupsCount: duplicates.length,
 											},
