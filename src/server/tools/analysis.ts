@@ -5,6 +5,7 @@ import {
 	findUnlinkedElements,
 } from "@core/services/analysis";
 import { readVaultFile } from "@core/storage/storage";
+import { ErrorCodes, ExcalidrawMcpError } from "@core/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -136,7 +137,10 @@ export function registerAnalysis(server: McpServer) {
 							(e) => e.id === params.elementId,
 						);
 						if (!element) {
-							throw new Error(`Element ${params.elementId} not found`);
+							throw new ExcalidrawMcpError(
+								ErrorCodes.E_NOT_FOUND_ELEMENT,
+								`Element ${params.elementId} not found`,
+							);
 						}
 
 						return {

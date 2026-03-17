@@ -207,4 +207,42 @@ describe("server tools/parsers", () => {
 			await rm(tempFilePath, { force: true });
 		}
 	});
+
+	it("returns E_NOT_FOUND_ELEMENT in structured format for missing element lookup", async () => {
+		const tempFilePath = `tmp-parsers-${Date.now()}-missing.excalidraw.md`;
+		await writeFile(
+			tempFilePath,
+			createEmbeddableLinkedDrawingMarkdown(),
+			"utf-8",
+		);
+
+		try {
+			const { server, handlers } = createToolServerForTests();
+			registerParsers(server);
+			const inspectDrawing = handlers.get("inspect_drawing");
+			expect(inspectDrawing).toBeDefined();
+
+			const result = (await inspectDrawing?.({
+				filePath: tempFilePath,
+				mode: "element",
+				elementId: "not-existing-id",
+			})) as {
+				isError?: boolean;
+				content: Array<{ text: string }>;
+			};
+
+			expect(result.isError).toBe(true);
+			const payload = JSON.parse(result.content[0].text) as {
+				isError: boolean;
+				code: string;
+				message: string;
+			};
+
+			expect(payload.isError).toBe(true);
+			expect(payload.code).toBe(ErrorCodes.E_NOT_FOUND_ELEMENT);
+			expect(payload.message).toContain("Element not found");
+		} finally {
+			await rm(tempFilePath, { force: true });
+		}
+	});
 });

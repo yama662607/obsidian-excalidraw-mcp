@@ -193,7 +193,10 @@ export function registerParsers(server: McpServer) {
 							(el) => el.id === elementId,
 						);
 						if (!element) {
-							throw new Error(`Element not found: ${elementId}`);
+							throw new ExcalidrawMcpError(
+								ErrorCodes.E_NOT_FOUND_ELEMENT,
+								`Element not found: ${elementId}`,
+							);
 						}
 
 						return {
